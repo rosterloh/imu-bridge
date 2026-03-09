@@ -13,7 +13,7 @@ use esp_hal::time::Rate;
 use static_cell::StaticCell;
 
 pub type SharedI2c = Mutex<CriticalSectionRawMutex, I2c<'static, esp_hal::Async>>;
-pub type SharedSpi = Mutex<CriticalSectionRawMutex, Spi<'static, esp_hal::Blocking>>;
+pub type SharedSpi = Mutex<CriticalSectionRawMutex, Spi<'static, esp_hal::Async>>;
 
 static I2C_BUS: StaticCell<SharedI2c> = StaticCell::new();
 static SPI_BUS: StaticCell<SharedSpi> = StaticCell::new();
@@ -55,8 +55,8 @@ pub fn init(
         .unwrap()
         .with_sck(sck_gpio)
         .with_mosi(mosi_gpio)
-        .with_miso(miso_gpio);
-    // .into_async();
+        .with_miso(miso_gpio)
+        .into_async();
     let spi_bus = SPI_BUS.init(Mutex::new(spi2));
     let cs_accel = Output::new(cs0_gpio, Level::High, OutputConfig::default());
     let cs_gyro = Output::new(cs1_gpio, Level::High, OutputConfig::default());
