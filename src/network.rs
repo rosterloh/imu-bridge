@@ -14,6 +14,8 @@ use zenoh_nostd::session::{
 
 const SSID: Option<&str> = option_env!("SSID");
 const PASSWORD: Option<&str> = option_env!("PASSWORD");
+const RECONNECT_DELAY_MS: u64 = 5000;
+const RADIO_RETRY_DELAY_MS: u64 = 1000;
 
 pub struct ZenohConfig {
     transports: TransportLinkManager<EmbassyLinkManager<'static, 512, 3>>,
@@ -73,7 +75,7 @@ pub async fn connection(mut controller: WifiController<'static>) {
             WifiStaState::Connected => {
                 // wait until we're no longer connected
                 controller.wait_for_event(WifiEvent::StaDisconnected).await;
-                Timer::after(Duration::from_millis(5000)).await
+                Timer::after(Duration::from_millis(RECONNECT_DELAY_MS)).await
             }
             _ => {}
         }
@@ -83,9 +85,17 @@ pub async fn connection(mut controller: WifiController<'static>) {
                     .with_ssid(ssid.into())
                     .with_password(password.into()),
             );
-            controller.set_config(&client_config).unwrap();
+            if let Err(e) = controller.set_config(&client_config) {
+                error!("Failed to configure radio stack: {:?}, retrying...", e);
+                Timer::after(Duration::from_millis(RADIO_RETRY_DELAY_MS)).await;
+                continue;
+            }
             info!("Starting Wi-Fi");
-            controller.start_async().await.unwrap();
+            if let Err(e) = controller.start_async().await {
+                error!("Failed to start radio stack: {:?}, retrying...", e);
+                Timer::after(Duration::from_millis(RADIO_RETRY_DELAY_MS)).await;
+                continue;
+            }
             info!("Wi-Fi started!");
 
             info!("Scan");
@@ -107,7 +117,7 @@ pub async fn connection(mut controller: WifiController<'static>) {
             Ok(_) => info!("Wi-Fi connected!"),
             Err(e) => {
                 error!("Failed to connect to Wi-Fi: {:?}", e);
-                Timer::after(Duration::from_millis(5000)).await
+                Timer::after(Duration::from_millis(RECONNECT_DELAY_MS)).await
             }
         }
     }

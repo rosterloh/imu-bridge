@@ -5,7 +5,7 @@ runner = "probe-rs run --chip=esp32s3 --preverify --always-print-stacktrace --no
 DEFMT_LOG="info"
 SSID = "GL-AR750S-6b6" # "Alpha"
 PASSWORD = "goodlife" # "humanoid"
-ENDPOINT = "tcp/192.168.8.183:7447"
+ZENOH_ROUTER_ENDPOINT = "tcp/192.168.8.189:7447"
 
 [build]
 rustflags = [

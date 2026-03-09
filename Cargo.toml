@@ -8,9 +8,12 @@ name = "imu-bridge"
 path = "./src/bin/main.rs"
 
 [dependencies]
+bmi088 = "0.2.1"
 critical-section = "1.2.0"
 defmt = "1.0.1"
+embassy-embedded-hal = { version = "0.5.0", features = ["defmt", "time"] }
 embassy-executor = { version = "0.9.1", features = ["defmt"] }
+embassy-futures = { version = "0.1.2", features = ["defmt"] }
 embassy-net = { version = "0.8.0", features = [
   "defmt",
   "dhcpv4",
@@ -20,6 +23,8 @@ embassy-net = { version = "0.8.0", features = [
 ] }
 embassy-sync = { version = "0.7.2", features = ["defmt"] }
 embassy-time = { version = "0.5.0", features = ["defmt"] }
+embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
 embedded-io = { version = "0.7.1", features = ["defmt"] }
 embedded-io-async = { version = "0.7.0", features = ["defmt"] }
 esp-alloc = { version = "0.9.0", features = ["defmt"] }
@@ -42,6 +47,7 @@ esp-rtos = { version = "0.2.0", features = [
 ] }
 getrandom = { version = "0.2.16", features = ["custom"] }
 heapless = { version = "0.9.2", default-features = false, features = ["defmt", "embedded-io-v0.7"] }
+ism330dhcx-rs = "2.0.0"
 panic-rtt-target = { version = "0.2.0", features = ["defmt"] }
 rtt-target = { version = "0.6.2", features = ["defmt"] }
 static_cell = "2.1.1"
@@ -59,9 +65,12 @@ smoltcp = { version = "0.12.0", default-features = false, features = [
   "socket-tcp",
   "socket-udp",
 ] }
-thiserror = { version = "2.0.18", default-features = false }
+st-mems-bus = "2.0.0"
 zenoh-nostd = { git = "https://github.com/ZettaScaleLabs/zenoh-nostd", features = ["defmt"] }
 zenoh-embassy = { git = "https://github.com/ZettaScaleLabs/zenoh-nostd" }
+
+[patch.crates-io]
+ism330dhcx-rs = { git = "https://github.com/STMicroelectronics/ism330dhcx-rs", rev = "4a522206" }
 
 [profile.dev]
 # Rust debug is too slow.
