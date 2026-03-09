@@ -223,6 +223,7 @@ async fn sensor_task(
     loop {
         match sensor::read_ready(&mut sensor).await {
             Ok(Some(reading)) => {
+                info!("Read sensor: {:?}", reading);
                 SENSOR_CHANNEL.send(reading).await;
             }
             Ok(None) => {}

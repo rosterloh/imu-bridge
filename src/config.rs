@@ -4,6 +4,7 @@ pub enum ImuKind {
     Ism330dlc,
     Bmi088,
     Icm45686,
+    Icm42688p,
 }
 
 pub const IMU_KIND: ImuKind = ImuKind::Ism330dlc;

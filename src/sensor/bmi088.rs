@@ -1,4 +1,5 @@
 use defmt::{error, warn};
+use embassy_time::Timer;
 use embedded_hal_async::spi::SpiBus;
 use esp_hal::gpio::Output;
 
@@ -76,21 +77,21 @@ pub async fn init(
     sensor
         .write_accel_register(ACC_REG_SOFT_RESET, SOFT_RESET_CMD)
         .await?;
-    embassy_time::Timer::after_millis(10).await;
+    Timer::after_millis(10).await;
 
     sensor
         .write_accel_register(ACC_REG_PWR_CONF, ACC_PWR_CONF_ACTIVE)
         .await?;
-    embassy_time::Timer::after_millis(1).await;
+    Timer::after_millis(1).await;
     sensor
         .write_accel_register(ACC_REG_PWR_CTRL, ACC_PWR_CTRL_ON)
         .await?;
-    embassy_time::Timer::after_millis(50).await;
+    Timer::after_millis(50).await;
 
     sensor
         .write_gyro_register(GYRO_REG_SOFT_RESET, SOFT_RESET_CMD)
         .await?;
-    embassy_time::Timer::after_millis(100).await;
+    Timer::after_millis(100).await;
     sensor
         .write_gyro_register(GYRO_REG_RANGE, GYRO_RANGE_2000_DPS)
         .await?;
@@ -111,7 +112,9 @@ pub async fn read_ready(sensor: &mut Bmi088) -> Result<Option<SensorReading>, Se
     let reading = match sensor.cycle_index {
         0 => {
             let mut buf = [0u8; 6];
-            sensor.read_accel_burst(ACC_REG_ACCEL_X_LSB, &mut buf).await?;
+            sensor
+                .read_accel_burst(ACC_REG_ACCEL_X_LSB, &mut buf)
+                .await?;
             Some(SensorReading::Acceleration([
                 read_le_i16(&buf[0..2]) as f32 * sensor.accel_mg_per_lsb,
                 read_le_i16(&buf[2..4]) as f32 * sensor.accel_mg_per_lsb,

@@ -7,6 +7,28 @@ pub enum SensorReading {
     AngularRate([f32; 3]),
 }
 
+impl defmt::Format for SensorReading {
+    fn format(&self, fmt: defmt::Formatter) {
+        match self {
+            SensorReading::Temperature(temp) => defmt::write!(fmt, "Temperature: {=f32} C", temp),
+            SensorReading::Acceleration(accel) => defmt::write!(
+                fmt,
+                "Acceleration: [{=f32}, {=f32}, {=f32}] mg",
+                accel[0],
+                accel[1],
+                accel[2]
+            ),
+            SensorReading::AngularRate(gyro) => defmt::write!(
+                fmt,
+                "Angular Rate: [{=f32}, {=f32}, {=f32}] mdps",
+                gyro[0],
+                gyro[1],
+                gyro[2]
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BinaryEncodeError {
     BufferTooSmall,
