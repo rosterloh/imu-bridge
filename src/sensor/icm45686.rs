@@ -3,6 +3,7 @@ use embassy_time::Timer;
 use embedded_hal_async::spi::SpiBus;
 use esp_hal::gpio::Output;
 
+use crate::sensor::SensorChannel;
 use crate::{board::SharedSpi, config, domain::sensor_reading::SensorReading};
 
 const REG_ACCEL_DATA_X1_UI: u8 = 0x00;
@@ -33,7 +34,10 @@ pub struct Icm45686 {
     cycle_index: u8,
 }
 
-pub async fn init(spi: &'static SharedSpi, mut cs: Output<'static>) -> Result<Icm45686, SensorError> {
+pub async fn init(
+    spi: &'static SharedSpi,
+    mut cs: Output<'static>,
+) -> Result<Icm45686, SensorError> {
     cs.set_high();
 
     let mut sensor = Icm45686 {
@@ -64,36 +68,47 @@ pub async fn init(spi: &'static SharedSpi, mut cs: Output<'static>) -> Result<Ic
     Ok(sensor)
 }
 
-pub async fn read_ready(sensor: &mut Icm45686) -> Result<Option<SensorReading>, SensorError> {
-    let reading = match sensor.cycle_index {
+pub async fn read_ready(
+    sensor: &mut Icm45686,
+    sensor_channel: &'static SensorChannel,
+) -> Result<(), SensorError> {
+    match sensor.cycle_index {
         0 => {
             let mut buf = [0u8; 6];
-            sensor.read_registers(REG_ACCEL_DATA_X1_UI, &mut buf).await?;
-            Some(SensorReading::Acceleration([
-                read_be_i16(&buf[0..2]) as f32 * ACCEL_MG_PER_LSB_2G,
-                read_be_i16(&buf[2..4]) as f32 * ACCEL_MG_PER_LSB_2G,
-                read_be_i16(&buf[4..6]) as f32 * ACCEL_MG_PER_LSB_2G,
-            ]))
+            sensor
+                .read_registers(REG_ACCEL_DATA_X1_UI, &mut buf)
+                .await?;
+            sensor_channel
+                .send(SensorReading::Acceleration([
+                    read_be_i16(&buf[0..2]) as f32 * ACCEL_MG_PER_LSB_2G,
+                    read_be_i16(&buf[2..4]) as f32 * ACCEL_MG_PER_LSB_2G,
+                    read_be_i16(&buf[4..6]) as f32 * ACCEL_MG_PER_LSB_2G,
+                ]))
+                .await;
         }
         1 => {
             let mut buf = [0u8; 6];
             sensor.read_registers(REG_GYRO_DATA_X1_UI, &mut buf).await?;
-            Some(SensorReading::AngularRate([
-                read_be_i16(&buf[0..2]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-                read_be_i16(&buf[2..4]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-                read_be_i16(&buf[4..6]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-            ]))
+            sensor_channel
+                .send(SensorReading::AngularRate([
+                    read_be_i16(&buf[0..2]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
+                    read_be_i16(&buf[2..4]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
+                    read_be_i16(&buf[4..6]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
+                ]))
+                .await;
         }
         _ => {
             let mut buf = [0u8; 2];
             sensor.read_registers(REG_TEMP_DATA1_UI, &mut buf).await?;
             let temp_raw = read_be_i16(&buf) as f32;
-            Some(SensorReading::Temperature((temp_raw / 128.0) + 25.0))
+            sensor_channel
+                .send(SensorReading::Temperature((temp_raw / 128.0) + 25.0))
+                .await;
         }
     };
 
     sensor.cycle_index = (sensor.cycle_index + 1) % 3;
-    Ok(reading)
+    Ok(())
 }
 
 impl Icm45686 {

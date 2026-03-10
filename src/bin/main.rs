@@ -31,7 +31,6 @@ use zenoh_nostd::session::{Session, zenoh};
 
 extern crate alloc;
 
-use imu_bridge::domain::sensor_reading::SensorReading;
 use imu_bridge::error::Error;
 use imu_bridge::network::{ZenohConfig, connection, net_task, zenoh_connect_static};
 use imu_bridge::sensor;
@@ -42,7 +41,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 static RNG: Mutex<CriticalSectionRawMutex, Option<Rng>> = Mutex::new(None);
 static WIFI_RADIO: StaticCell<Controller> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-static SENSOR_CHANNEL: Channel<CriticalSectionRawMutex, SensorReading, 4> = Channel::new();
+static SENSOR_CHANNEL: sensor::SensorChannel = Channel::new();
 static ZENOH_CONNECTED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 register_custom_getrandom!(getrandom_custom);
@@ -212,7 +211,7 @@ async fn sensor_task(
             Ok(sensor) => sensor,
             Err(error) => {
                 sensor::log_error(error);
-                return;
+                panic!("sensor init failed: {:?}", error);
             }
         };
 
@@ -221,15 +220,9 @@ async fn sensor_task(
     info!("Zenoh session connected, start publishing sensor readings");
 
     loop {
-        match sensor::read_ready(&mut sensor).await {
-            Ok(Some(reading)) => {
-                info!("Read sensor: {:?}", reading);
-                SENSOR_CHANNEL.send(reading).await;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                sensor::log_error(error);
-            }
+        if let Err(error) = sensor::read_ready(&mut sensor, &SENSOR_CHANNEL).await {
+            // errors are already logged in read_ready, so we can just ignore them here
+            sensor::log_error(error);
         }
 
         Timer::after_millis(config::SENSOR_POLL_INTERVAL_MS).await;
@@ -245,6 +238,7 @@ async fn main_loop(session: Option<&'static Session<'static, ZenohConfig>>) -> R
 
     let mut msg = heapless::String::<{ config::SENSOR_MESSAGE_CAPACITY }>::new();
     val.format_into(&mut msg)?;
+    info!("Received sensor reading: {}", msg);
 
     let keyexpr = zenoh::keyexpr::new(config::ZENOH_KEYEXPR).map_err(|_| Error::Write)?;
     session

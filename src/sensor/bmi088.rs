@@ -3,6 +3,7 @@ use embassy_time::Timer;
 use embedded_hal_async::spi::SpiBus;
 use esp_hal::gpio::Output;
 
+use crate::sensor::SensorChannel;
 use crate::{board::SharedSpi, domain::sensor_reading::SensorReading};
 
 const ACC_CHIP_ID: u8 = 0x1e;
@@ -108,39 +109,48 @@ pub async fn init(
     Ok(sensor)
 }
 
-pub async fn read_ready(sensor: &mut Bmi088) -> Result<Option<SensorReading>, SensorError> {
-    let reading = match sensor.cycle_index {
+pub async fn read_ready(
+    sensor: &mut Bmi088,
+    sensor_channel: &'static SensorChannel,
+) -> Result<(), SensorError> {
+    match sensor.cycle_index {
         0 => {
             let mut buf = [0u8; 6];
             sensor
                 .read_accel_burst(ACC_REG_ACCEL_X_LSB, &mut buf)
                 .await?;
-            Some(SensorReading::Acceleration([
-                read_le_i16(&buf[0..2]) as f32 * sensor.accel_mg_per_lsb,
-                read_le_i16(&buf[2..4]) as f32 * sensor.accel_mg_per_lsb,
-                read_le_i16(&buf[4..6]) as f32 * sensor.accel_mg_per_lsb,
-            ]))
+            sensor_channel
+                .send(SensorReading::Acceleration([
+                    read_le_i16(&buf[0..2]) as f32 * sensor.accel_mg_per_lsb,
+                    read_le_i16(&buf[2..4]) as f32 * sensor.accel_mg_per_lsb,
+                    read_le_i16(&buf[4..6]) as f32 * sensor.accel_mg_per_lsb,
+                ]))
+                .await;
         }
         1 => {
             let mut buf = [0u8; 6];
             sensor.read_gyro_burst(GYRO_REG_X_LSB, &mut buf).await?;
-            Some(SensorReading::AngularRate([
-                read_le_i16(&buf[0..2]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-                read_le_i16(&buf[2..4]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-                read_le_i16(&buf[4..6]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-            ]))
+            sensor_channel
+                .send(SensorReading::AngularRate([
+                    read_le_i16(&buf[0..2]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
+                    read_le_i16(&buf[2..4]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
+                    read_le_i16(&buf[4..6]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
+                ]))
+                .await;
         }
         2 => {
             let msb = sensor.read_accel_register(ACC_REG_TEMP_MSB).await?;
             let lsb = sensor.read_accel_register(ACC_REG_TEMP_LSB).await?;
             let temp_raw = (msb as i16) * 8 + (lsb as i16) / 32;
-            Some(SensorReading::Temperature((temp_raw as f32) * 0.125 + 23.0))
+            sensor_channel
+                .send(SensorReading::Temperature((temp_raw as f32) * 0.125 + 23.0))
+                .await;
         }
-        _ => None,
+        _ => {}
     };
 
     sensor.cycle_index = (sensor.cycle_index + 1) % 4;
-    Ok(reading)
+    Ok(())
 }
 
 impl Bmi088 {

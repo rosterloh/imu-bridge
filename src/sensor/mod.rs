@@ -1,10 +1,11 @@
 pub mod bmi088;
 pub mod icm42688p;
 pub mod icm45686;
-pub mod ism330dlc;
 pub mod imu;
+pub mod ism330dlc;
 
 use defmt::error;
+use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use esp_hal::gpio::Output;
 
 use crate::{
@@ -12,6 +13,8 @@ use crate::{
     config::ImuKind,
     domain::sensor_reading::SensorReading,
 };
+
+pub type SensorChannel = Channel<CriticalSectionRawMutex, SensorReading, 4>;
 
 pub enum Sensor {
     Ism(ism330dlc::Ism330dlc),
@@ -59,14 +62,21 @@ pub async fn init_selected(
     }
 }
 
-pub async fn read_ready(sensor: &mut Sensor) -> Result<Option<SensorReading>, SensorError> {
+pub async fn read_ready(
+    sensor: &mut Sensor,
+    sensor_channel: &'static SensorChannel,
+) -> Result<(), SensorError> {
     match sensor {
-        Sensor::Ism(sensor) => ism330dlc::read_ready(sensor).await.map_err(SensorError::Ism),
-        Sensor::Bmi(sensor) => bmi088::read_ready(sensor).await.map_err(SensorError::Bmi),
-        Sensor::Icm42688p(sensor) => icm42688p::read_ready(sensor)
+        Sensor::Ism(sensor) => ism330dlc::read_ready(sensor, sensor_channel)
+            .await
+            .map_err(SensorError::Ism),
+        Sensor::Bmi(sensor) => bmi088::read_ready(sensor, sensor_channel)
+            .await
+            .map_err(SensorError::Bmi),
+        Sensor::Icm42688p(sensor) => icm42688p::read_ready(sensor, sensor_channel)
             .await
             .map_err(SensorError::Icm42688p),
-        Sensor::Icm45686(sensor) => icm45686::read_ready(sensor)
+        Sensor::Icm45686(sensor) => icm45686::read_ready(sensor, sensor_channel)
             .await
             .map_err(SensorError::Icm45686),
     }
