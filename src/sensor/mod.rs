@@ -64,19 +64,15 @@ pub async fn init_selected(
 
 pub async fn read_ready(
     sensor: &mut Sensor,
-    sensor_channel: &'static SensorChannel,
-) -> Result<(), SensorError> {
+    timestamp_us: u64,
+) -> Result<SensorReading, SensorError> {
     match sensor {
-        Sensor::Ism(sensor) => ism330dlc::read_ready(sensor, sensor_channel)
-            .await
-            .map_err(SensorError::Ism),
-        Sensor::Bmi(sensor) => bmi088::read_ready(sensor, sensor_channel)
-            .await
-            .map_err(SensorError::Bmi),
-        Sensor::Icm42688p(sensor) => icm42688p::read_ready(sensor, sensor_channel)
+        Sensor::Ism(sensor) => ism330dlc::read_ready(sensor, timestamp_us).await.map_err(SensorError::Ism),
+        Sensor::Bmi(sensor) => bmi088::read_ready(sensor, timestamp_us).await.map_err(SensorError::Bmi),
+        Sensor::Icm42688p(sensor) => icm42688p::read_ready(sensor, timestamp_us)
             .await
             .map_err(SensorError::Icm42688p),
-        Sensor::Icm45686(sensor) => icm45686::read_ready(sensor, sensor_channel)
+        Sensor::Icm45686(sensor) => icm45686::read_ready(sensor, timestamp_us)
             .await
             .map_err(SensorError::Icm45686),
     }

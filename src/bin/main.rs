@@ -42,6 +42,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 static RNG: Mutex<CriticalSectionRawMutex, Option<Rng>> = Mutex::new(None);
 static WIFI_RADIO: StaticCell<Controller> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+static RTC: StaticCell<Rtc> = StaticCell::new();
 static SENSOR_CHANNEL: sensor::SensorChannel = Channel::new();
 static ZENOH_CONNECTED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
@@ -101,7 +102,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     } = peripherals;
 
     let timg0 = TimerGroup::new(timg0_peripheral);
-    let rtc = Rtc::new(lpwr);
+    let rtc = RTC.init(Rtc::new(lpwr));
     // let sw_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0); // sw_interrupt.software_interrupt0
 
@@ -148,6 +149,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
             spi_bus,
             spi_cs_accel,
             spi_cs_gyro,
+            rtc,
         ))
         .ok();
 
@@ -210,6 +212,7 @@ async fn sensor_task(
     spi_bus: &'static board::SharedSpi,
     spi_cs_accel: esp_hal::gpio::Output<'static>,
     spi_cs_gyro: Option<esp_hal::gpio::Output<'static>>,
+    rtc: &'static Rtc<'static>,
 ) {
     let mut sensor =
         match sensor::init_selected(imu_kind, i2c_bus, spi_bus, spi_cs_accel, spi_cs_gyro).await {
@@ -225,9 +228,14 @@ async fn sensor_task(
     info!("Zenoh session connected, start publishing sensor readings");
 
     loop {
-        if let Err(error) = sensor::read_ready(&mut sensor, &SENSOR_CHANNEL).await {
-            // errors are already logged in read_ready, so we can just ignore them here
-            sensor::log_error(error);
+        let timestamp_us = rtc.current_time_us();
+        match sensor::read_ready(&mut sensor, timestamp_us).await {
+            Ok(reading) => {
+                SENSOR_CHANNEL.send(reading).await;
+            }
+            Err(error) => {
+                sensor::log_error(error);
+            }
         }
 
         Timer::after_millis(config::SENSOR_POLL_INTERVAL_MS).await;

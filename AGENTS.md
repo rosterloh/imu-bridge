@@ -1,5 +1,15 @@
 # Repository Guidelines
 
+## MANDATORY: Use td for Task Management
+
+Run td usage --new-session at conversation start (or after /clear). This tells you what to work on next.
+
+Sessions are automatic (based on terminal/agent context). Optional:
+- td session "name" to label the current session
+- td session --new to force a new session in the same context
+
+Use td usage -q after first read.
+
 ## Project Structure & Module Organization
 `src/lib.rs` exposes the reusable crate modules: `board`, `config`, `network`, `sensor`, `domain`, and `error`. The firmware entrypoint lives in `src/bin/main.rs`. Sensor integrations are grouped under `src/sensor/` (`bmi088.rs`, `imu.rs`), and message/domain types live under `src/domain/`. Build-time setup is in `build.rs`, while target and runner defaults are in `.cargo/config.toml`.
 

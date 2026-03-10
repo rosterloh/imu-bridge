@@ -2,7 +2,6 @@ use defmt::warn;
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
 
-use crate::sensor::SensorChannel;
 use crate::{board::SharedSpi, config, domain::sensor_reading::SensorReading};
 
 use super::imu::{RegisterDevice, log_bus_error};
@@ -113,52 +112,47 @@ pub async fn init(spi: &'static SharedSpi, cs: Output<'static>) -> Result<Ism330
 
 pub async fn read_ready(
     sensor: &mut Ism330dlc,
-    sensor_channel: &'static SensorChannel,
-) -> Result<(), SensorError> {
+    timestamp_us: u64,
+) -> Result<SensorReading, SensorError> {
     let status = sensor
         .device
         .read_register(REG_STATUS_REG)
         .await
         .map_err(|_| SensorError::Bus)?;
 
+    let mut accel: [i16; 3] = [0; 3];
     if status & STATUS_XLDA != 0 {
-        let raw = sensor
+        accel = sensor
             .device
             .read_xyz(REG_OUTX_L_XL)
             .await
             .map_err(|_| SensorError::Bus)?;
-        sensor_channel
-            .send(SensorReading::Acceleration(
-                raw.map(|v| v as f32 * ACCEL_MG_PER_LSB_2G),
-            ))
-            .await;
     }
 
+    let mut gyro: [i16; 3] = [0; 3];
     if status & STATUS_GDA != 0 {
-        let raw = sensor
+        gyro = sensor
             .device
             .read_xyz(REG_OUTX_L_G)
             .await
             .map_err(|_| SensorError::Bus)?;
-        sensor_channel
-            .send(SensorReading::AngularRate(
-                raw.map(|v| v as f32 * GYRO_MDPS_PER_LSB_2000DPS),
-            ))
-            .await;
     }
 
+    let mut temp_raw: i16 = 0;
     if status & STATUS_TDA != 0 {
-        let raw = sensor
+        temp_raw = sensor
             .device
             .read_i16(REG_OUT_TEMP_L)
             .await
             .map_err(|_| SensorError::Bus)?;
-        sensor_channel
-            .send(SensorReading::Temperature(25.0 + raw as f32 / 256.0))
-            .await;
     }
 
-    Ok(())
+    Ok(SensorReading {
+        timestamp_us,
+        acceleration_mg: accel.map(|v| v as f32 * ACCEL_MG_PER_LSB_2G),
+        angular_rate_mdps: gyro.map(|v| v as f32 * GYRO_MDPS_PER_LSB_2000DPS),
+        temperature_c: 25.0 + temp_raw as f32 / 256.0,
+    })
 }
 
 pub fn log_error(error: SensorError) {
