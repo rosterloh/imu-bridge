@@ -1,16 +1,14 @@
 [target.xtensa-esp32s3-none-elf]
 runner = "probe-rs run --chip=esp32s3 --preverify --always-print-stacktrace --no-location --catch-hardfault"
+rustflags = [
+  "-C", "link-arg=-nostartfiles",
+]
 
 [env]
 DEFMT_LOG="info"
 SSID = "GL-AR750S-6b6" # "Alpha"
 PASSWORD = "goodlife" # "humanoid"
 ZENOH_ROUTER_ENDPOINT = "tcp/192.168.8.189:7447"
-
-[build]
-rustflags = [
-  "-C", "link-arg=-nostartfiles",
-]
 
 target = "xtensa-esp32s3-none-elf"
 

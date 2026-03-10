@@ -45,3 +45,18 @@ SCL GPIO12 A5          D4 GPIO7
                       D15  GPIO0   LED1 (green)
                       D16  GPIO45  LED2 (blue)
 ```
+
+## PC Logger
+
+A host-side Zenoh subscriber is available in [`tools/imu-logger`](./tools/imu-logger). It connects to the bridge, subscribes to the IMU topic, parses the text payload, and appends samples to a CSV file.
+
+Build or run it with the host toolchain:
+
+```sh
+cargo +stable run --manifest-path tools/imu-logger/Cargo.toml --target x86_64-unknown-linux-gnu -- \
+  --connect tcp/127.0.0.1:7447 \
+  --keyexpr imu/reading \
+  --output /tmp/imu-readings.csv
+```
+
+The CSV columns are `timestamp_us`, `accel_*_mg`, `gyro_*_mdps`, and `temperature_c`.
