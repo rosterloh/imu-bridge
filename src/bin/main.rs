@@ -8,20 +8,20 @@
 #![deny(clippy::large_stack_frames)]
 
 use core::num::NonZeroU32;
-// use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::{error, info, warn};
 use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_net::StackResources;
 use embassy_sync::{
     blocking_mutex::{Mutex, raw::CriticalSectionRawMutex},
     channel::Channel,
-    signal::Signal,
 };
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::peripherals::Peripherals;
-use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rng::Rng;
+use esp_hal::rtc_cntl::Rtc;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup};
 use esp_radio::Controller;
 use getrandom::register_custom_getrandom;
@@ -33,7 +33,9 @@ use zenoh_nostd::session::{Session, zenoh};
 extern crate alloc;
 
 use imu_bridge::error::Error;
-use imu_bridge::network::{ZenohConfig, connection, net_task, sync_rtc_from_ntp, zenoh_connect_static};
+use imu_bridge::network::{
+    ZenohConfig, connection, net_task, sync_rtc_from_ntp, zenoh_connect_static,
+};
 use imu_bridge::sensor;
 use imu_bridge::{board, config};
 
@@ -44,7 +46,7 @@ static WIFI_RADIO: StaticCell<Controller> = StaticCell::new();
 static STACK_RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
 static RTC: StaticCell<Rtc> = StaticCell::new();
 static SENSOR_CHANNEL: sensor::SensorChannel = Channel::new();
-static ZENOH_CONNECTED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static ZENOH_CONNECTED: AtomicBool = AtomicBool::new(false);
 
 register_custom_getrandom!(getrandom_custom);
 const MY_CUSTOM_ERROR_CODE: u32 = getrandom::Error::CUSTOM_START + 42;
@@ -115,7 +117,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         spi_bus,
         spi_cs_accel,
         spi_cs_gyro,
-        led0: _led0,
+        led0,
     } = board::init(
         i2c0, spi2, gpio11, gpio12, gpio21, gpio13, gpio38, gpio47, gpio48, gpio46, gpio0, gpio45,
     );
@@ -142,6 +144,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
 
     spawner.spawn(connection(wifi_controller)).ok();
     spawner.spawn(net_task(runner)).ok();
+    spawner.spawn(zenoh_task(stack, rtc, led0)).ok();
     spawner
         .spawn(sensor_task(
             config::IMU_KIND,
@@ -153,41 +156,6 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         ))
         .ok();
 
-    info!("Waiting for link...");
-    loop {
-        if stack.is_link_up() {
-            info!("link up!");
-            break;
-        }
-        Timer::after(Duration::from_millis(500)).await;
-    }
-
-    info!("Waiting to get IP address...");
-    loop {
-        if let Some(config) = stack.config_v4() {
-            info!("Got IP: {}", config.address);
-            break;
-        }
-        Timer::after(Duration::from_millis(500)).await;
-    }
-
-    sync_rtc_from_ntp(stack, &rtc).await;
-
-    info!("Configure zenoh");
-    let endpoint = match Endpoint::try_from(config::zenoh_router_endpoint()) {
-        Ok(ep) => ep,
-        Err(e) => {
-            error!("Invalid endpoint: {:?}", e);
-            return Err(Error::ZError(e.into()));
-        }
-    };
-    let session = zenoh_connect_static(stack, endpoint).await;
-    if session.is_none() {
-        warn!("Zenoh connect failed");
-    } else {
-        ZENOH_CONNECTED.signal(());
-    }
-
     info!("Start watchdog");
     let mut wdt = timg0.wdt;
     wdt.set_timeout(
@@ -197,11 +165,8 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     wdt.enable();
 
     loop {
-        // Timer::after(Duration::from_secs(1)).await;
         wdt.feed();
-        if let Err(e) = main_loop(session).await {
-            error!("main loop error: {:?}", e);
-        }
+        Timer::after(Duration::from_secs(1)).await;
     }
 }
 
@@ -224,10 +189,24 @@ async fn sensor_task(
         };
 
     info!("IMU initialised, waiting for zenoh session");
-    ZENOH_CONNECTED.wait().await;
-    info!("Zenoh session connected, start publishing sensor readings");
+    let mut was_connected = false;
 
     loop {
+        let connected = ZENOH_CONNECTED.load(Ordering::Acquire);
+        if !connected {
+            if was_connected {
+                info!("Zenoh disconnected, pause IMU sampling");
+                was_connected = false;
+            }
+            Timer::after_millis(250).await;
+            continue;
+        }
+
+        if !was_connected {
+            info!("Zenoh session connected, start publishing sensor readings");
+            was_connected = true;
+        }
+
         let timestamp_us = rtc.current_time_us();
         match sensor::read_ready(&mut sensor, timestamp_us).await {
             Ok(reading) => {
@@ -242,23 +221,125 @@ async fn sensor_task(
     }
 }
 
-async fn main_loop(session: Option<&'static Session<'static, ZenohConfig>>) -> Result<(), Error> {
-    let val = SENSOR_CHANNEL.receive().await;
-    let Some(session) = session else {
-        warn!("Skipping publish because zenoh session is not connected");
-        return Ok(());
-    };
+#[embassy_executor::task]
+async fn zenoh_task(
+    stack: embassy_net::Stack<'static>,
+    rtc: &'static Rtc<'static>,
+    mut led0: esp_hal::gpio::Output<'static>,
+) {
+    let mut rtc_synced = false;
 
-    let mut msg = heapless::String::<{ config::SENSOR_MESSAGE_CAPACITY }>::new();
-    val.format_into(&mut msg)?;
-    info!("Received sensor reading: {}", msg);
+    loop {
+        wait_for_network_ready(stack, rtc, &mut rtc_synced).await;
 
+        let endpoint = match Endpoint::try_from(config::zenoh_router_endpoint()) {
+            Ok(ep) => ep,
+            Err(e) => {
+                error!("Invalid endpoint: {:?}", e);
+                Timer::after(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+
+        info!("Connecting zenoh...");
+        let session = match zenoh_connect_static(stack, endpoint).await {
+            Some(session) => session,
+            None => {
+                warn!("Zenoh connect failed");
+                Timer::after(Duration::from_secs(2)).await;
+                continue;
+            }
+        };
+
+        info!("Zenoh connected");
+        led0.set_low();
+        ZENOH_CONNECTED.store(true, Ordering::Release);
+
+        let reconnect_result = select(session.run(), publish_sensor_loop(session, stack)).await;
+
+        match reconnect_result {
+            Either::First(session_result) => {
+                if let Err(e) = session_result {
+                    warn!("Zenoh session closed: {:?}", e);
+                } else {
+                    warn!("Zenoh session ended");
+                }
+            }
+            Either::Second(loop_result) => {
+                if let Err(e) = loop_result {
+                    warn!("Zenoh publish loop stopped: {:?}", e);
+                }
+            }
+        }
+
+        ZENOH_CONNECTED.store(false, Ordering::Release);
+        led0.set_high();
+        warn!("Resetting to recover Wi-Fi/zenoh connection");
+        Timer::after(Duration::from_millis(250)).await;
+        esp_hal::system::software_reset();
+    }
+}
+
+async fn wait_for_network_ready(
+    stack: embassy_net::Stack<'static>,
+    rtc: &'static Rtc<'static>,
+    rtc_synced: &mut bool,
+) {
+    if !stack.is_link_up() {
+        info!("Waiting for link...");
+    }
+    while !stack.is_link_up() {
+        Timer::after(Duration::from_millis(500)).await;
+    }
+    info!("link up!");
+
+    if stack.config_v4().is_none() {
+        info!("Waiting to get IP address...");
+    }
+    loop {
+        if let Some(config) = stack.config_v4() {
+            info!("Got IP: {}", config.address);
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+
+    if !*rtc_synced {
+        sync_rtc_from_ntp(stack, rtc).await;
+        *rtc_synced = true;
+    }
+}
+
+async fn publish_sensor_loop(
+    session: &Session<'_, ZenohConfig>,
+    stack: embassy_net::Stack<'static>,
+) -> Result<(), Error> {
     let keyexpr = zenoh::keyexpr::new(config::ZENOH_KEYEXPR).map_err(|_| Error::Write)?;
-    session
-        .put(keyexpr, msg.as_bytes())
-        .finish()
-        .await
-        .map_err(|e| Error::ZError(e.into()))?;
 
-    Ok(())
+    loop {
+        if !stack.is_link_up() || stack.config_v4().is_none() {
+            warn!("Network lost, reconnecting zenoh");
+            return Ok(());
+        }
+
+        let val = match embassy_time::with_timeout(
+            Duration::from_millis(500),
+            SENSOR_CHANNEL.receive(),
+        )
+        .await
+        {
+            Ok(val) => val,
+            Err(_) => continue,
+        };
+
+        let mut msg = heapless::String::<{ config::SENSOR_MESSAGE_CAPACITY }>::new();
+        val.format_into(&mut msg)?;
+        info!("Received sensor reading: {}", msg);
+
+        session
+            .put(keyexpr, msg.as_bytes())
+            .finish()
+            .await
+            .map_err(|e| Error::ZError(e.into()))?;
+    }
 }
