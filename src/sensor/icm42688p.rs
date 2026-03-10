@@ -1,9 +1,14 @@
 use defmt::{error, warn};
 use embassy_time::Timer;
-use embedded_hal_async::spi::SpiBus;
 use esp_hal::gpio::Output;
 
-use crate::{board::SharedSpi, config, domain::sensor_reading::SensorReading};
+use crate::{
+    board::{SharedI2c, SharedSpi},
+    config,
+    domain::sensor_reading::SensorReading,
+};
+
+use super::imu::{RegisterDevice, SpiBusConfig};
 
 const REG_DEVICE_CONFIG: u8 = 0x11;
 const REG_TEMP_DATA1: u8 = 0x1d;
@@ -21,6 +26,7 @@ const PWR_MGMT0_ACCEL_GYRO_LOW_NOISE: u8 = 0x0f;
 const GYRO_CONFIG0_2000DPS_12_5HZ: u8 = 0x0b;
 const ACCEL_CONFIG0_2G_12_5HZ: u8 = 0x6b;
 const INT_STATUS_DATA_RDY: u8 = 0x08;
+const I2C_ADDRESS_PRIMARY: u8 = 0x68;
 
 const ACCEL_MG_PER_LSB_2G: f32 = 2000.0 / 32768.0;
 const GYRO_MDPS_PER_LSB_2000DPS: f32 = 2_000_000.0 / 32768.0;
@@ -33,39 +39,56 @@ pub enum SensorError {
 }
 
 pub struct Icm42688p {
-    spi: &'static SharedSpi,
-    cs: Output<'static>,
+    device: RegisterDevice,
 }
 
-pub async fn init(
+pub async fn init_spi(
     spi: &'static SharedSpi,
-    mut cs: Output<'static>,
+    cs: Output<'static>,
 ) -> Result<Icm42688p, SensorError> {
-    cs.set_high();
+    init_with_device(RegisterDevice::new_spi(spi, cs, SpiBusConfig::standard())).await
+}
 
-    let mut sensor = Icm42688p { spi, cs };
+pub async fn init_i2c(i2c: &'static SharedI2c) -> Result<Icm42688p, SensorError> {
+    init_with_device(RegisterDevice::new_i2c(i2c, I2C_ADDRESS_PRIMARY)).await
+}
+
+async fn init_with_device(device: RegisterDevice) -> Result<Icm42688p, SensorError> {
+    let mut sensor = Icm42688p { device };
 
     Timer::after_millis(config::SENSOR_BOOT_DELAY_MS).await;
 
     sensor
+        .device
         .write_register(REG_DEVICE_CONFIG, DEVICE_SOFT_RESET)
-        .await?;
+        .await
+        .map_err(|_| SensorError::Bus)?;
     Timer::after_millis(1).await;
 
-    let device_id = sensor.read_register(REG_WHO_AM_I).await?;
+    let device_id = sensor
+        .device
+        .read_register(REG_WHO_AM_I)
+        .await
+        .map_err(|_| SensorError::Bus)?;
     if device_id != WHO_AM_I_EXPECTED {
         return Err(SensorError::InvalidDeviceId(device_id));
     }
 
     sensor
+        .device
         .write_register(REG_GYRO_CONFIG0, GYRO_CONFIG0_2000DPS_12_5HZ)
-        .await?;
+        .await
+        .map_err(|_| SensorError::Bus)?;
     sensor
+        .device
         .write_register(REG_ACCEL_CONFIG0, ACCEL_CONFIG0_2G_12_5HZ)
-        .await?;
+        .await
+        .map_err(|_| SensorError::Bus)?;
     sensor
+        .device
         .write_register(REG_PWR_MGMT0, PWR_MGMT0_ACCEL_GYRO_LOW_NOISE)
-        .await?;
+        .await
+        .map_err(|_| SensorError::Bus)?;
 
     Timer::after_millis(1).await;
 
@@ -76,92 +99,42 @@ pub async fn read_ready(
     sensor: &mut Icm42688p,
     timestamp_us: u64,
 ) -> Result<SensorReading, SensorError> {
-    let status = sensor.read_register(REG_INT_STATUS).await?;
+    let status = sensor
+        .device
+        .read_register(REG_INT_STATUS)
+        .await
+        .map_err(|_| SensorError::Bus)?;
     if status & INT_STATUS_DATA_RDY == 0 {
         return Err(SensorError::DataNotReady);
     }
 
-    let mut accel_buf = [0u8; 6];
-    sensor
-        .read_registers(REG_ACCEL_DATA_X1, &mut accel_buf)
-        .await?;
-
-    let mut gyro_buf = [0u8; 6];
-    sensor
-        .read_registers(REG_GYRO_DATA_X1, &mut gyro_buf)
-        .await?;
-
-    let mut temp_buf = [0u8; 2];
-    sensor.read_registers(REG_TEMP_DATA1, &mut temp_buf).await?;
-    let temp_raw = read_be_i16(&temp_buf) as f32;
+    let accel = sensor
+        .device
+        .read_xyz_be(REG_ACCEL_DATA_X1)
+        .await
+        .map_err(|_| SensorError::Bus)?;
+    let gyro = sensor
+        .device
+        .read_xyz_be(REG_GYRO_DATA_X1)
+        .await
+        .map_err(|_| SensorError::Bus)?;
+    let temp_raw = sensor
+        .device
+        .read_i16_be(REG_TEMP_DATA1)
+        .await
+        .map_err(|_| SensorError::Bus)? as f32;
 
     Ok(SensorReading {
         timestamp_us,
-        acceleration_mg: [
-            read_be_i16(&accel_buf[0..2]) as f32 * ACCEL_MG_PER_LSB_2G,
-            read_be_i16(&accel_buf[2..4]) as f32 * ACCEL_MG_PER_LSB_2G,
-            read_be_i16(&accel_buf[4..6]) as f32 * ACCEL_MG_PER_LSB_2G,
-        ],
-        angular_rate_mdps: [
-            read_be_i16(&gyro_buf[0..2]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-            read_be_i16(&gyro_buf[2..4]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-            read_be_i16(&gyro_buf[4..6]) as f32 * GYRO_MDPS_PER_LSB_2000DPS,
-        ],
+        acceleration_mg: accel.map(|value| value as f32 * ACCEL_MG_PER_LSB_2G),
+        angular_rate_mdps: gyro.map(|value| value as f32 * GYRO_MDPS_PER_LSB_2000DPS),
         temperature_c: (temp_raw / 132.48) + 25.0,
     })
 }
 
-impl Icm42688p {
-    async fn read_register(&mut self, address: u8) -> Result<u8, SensorError> {
-        let mut buf = [address | 0x80, 0];
-        self.transfer(&mut buf).await?;
-        Ok(buf[1])
-    }
-
-    async fn read_registers(
-        &mut self,
-        start_address: u8,
-        data: &mut [u8],
-    ) -> Result<(), SensorError> {
-        let mut buf = [0u8; 7];
-        let frame = &mut buf[..data.len() + 1];
-        frame[0] = start_address | 0x80;
-        self.transfer(frame).await?;
-        data.copy_from_slice(&frame[1..]);
-        Ok(())
-    }
-
-    async fn write_register(&mut self, address: u8, value: u8) -> Result<(), SensorError> {
-        let buf = [address & 0x7f, value];
-        let mut spi = self.spi.lock().await;
-        self.cs.set_low();
-        let result = SpiBus::write(&mut *spi, &buf).await;
-        let flush_result = SpiBus::flush(&mut *spi).await;
-        self.cs.set_high();
-        result.map_err(|_| SensorError::Bus)?;
-        flush_result.map_err(|_| SensorError::Bus)?;
-        Ok(())
-    }
-
-    async fn transfer(&mut self, buffer: &mut [u8]) -> Result<(), SensorError> {
-        let mut spi = self.spi.lock().await;
-        self.cs.set_low();
-        let result = SpiBus::transfer_in_place(&mut *spi, buffer).await;
-        let flush_result = SpiBus::flush(&mut *spi).await;
-        self.cs.set_high();
-        result.map_err(|_| SensorError::Bus)?;
-        flush_result.map_err(|_| SensorError::Bus)?;
-        Ok(())
-    }
-}
-
-fn read_be_i16(bytes: &[u8]) -> i16 {
-    i16::from_be_bytes([bytes[0], bytes[1]])
-}
-
 pub fn log_error(error: SensorError) {
     match error {
-        SensorError::Bus => error!("ICM-42688-P SPI bus error"),
+        SensorError::Bus => error!("ICM-42688-P bus error"),
         SensorError::InvalidDeviceId(id) => warn!("Invalid ICM-42688-P ID {}", id),
         SensorError::DataNotReady => warn!("ICM-42688-P data not ready"),
     }

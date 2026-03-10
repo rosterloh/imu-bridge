@@ -23,14 +23,22 @@ pub async fn sensor_task(
     spi_cs_gyro: Option<Output<'static>>,
     rtc: &'static Rtc<'static>,
 ) {
-    let mut sensor =
-        match sensor::init_selected(imu_kind, i2c_bus, spi_bus, spi_cs_accel, spi_cs_gyro).await {
-            Ok(sensor) => sensor,
-            Err(error) => {
-                sensor::log_error(error);
-                panic!("sensor init failed: {:?}", error);
-            }
-        };
+    let mut sensor = match sensor::init_selected(
+        imu_kind,
+        config::IMU_TRANSPORT,
+        i2c_bus,
+        spi_bus,
+        spi_cs_accel,
+        spi_cs_gyro,
+    )
+    .await
+    {
+        Ok(sensor) => sensor,
+        Err(error) => {
+            sensor::log_error(error);
+            panic!("sensor init failed: {:?}", error);
+        }
+    };
 
     info!("IMU initialised, waiting for zenoh session");
     let mut was_connected = false;

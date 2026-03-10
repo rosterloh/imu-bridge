@@ -2,9 +2,13 @@ use defmt::warn;
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
 
-use crate::{board::SharedSpi, config, domain::sensor_reading::SensorReading};
+use crate::{
+    board::{SharedI2c, SharedSpi},
+    config,
+    domain::sensor_reading::SensorReading,
+};
 
-use super::imu::{RegisterDevice, log_bus_error};
+use super::imu::{RegisterDevice, SpiBusConfig, log_bus_error};
 
 const REG_WHO_AM_I: u8 = 0x0f;
 const REG_CTRL1_XL: u8 = 0x10;
@@ -26,6 +30,7 @@ const STATUS_XLDA: u8 = 0x01;
 const STATUS_GDA: u8 = 0x02;
 const STATUS_TDA: u8 = 0x04;
 const RESET_POLL_LIMIT: usize = 100;
+const I2C_ADDRESS_PRIMARY: u8 = 0x6a;
 
 const ACCEL_MG_PER_LSB_2G: f32 = 0.061;
 // const ACCEL_MG_PER_LSB_4G: f32 = 0.122;
@@ -47,10 +52,19 @@ pub enum SensorError {
     InvalidDeviceId(u8),
 }
 
-pub async fn init(spi: &'static SharedSpi, cs: Output<'static>) -> Result<Ism330dlc, SensorError> {
-    let mut sensor = Ism330dlc {
-        device: RegisterDevice::new(spi, cs),
-    };
+pub async fn init_spi(
+    spi: &'static SharedSpi,
+    cs: Output<'static>,
+) -> Result<Ism330dlc, SensorError> {
+    init_with_device(RegisterDevice::new_spi(spi, cs, SpiBusConfig::standard())).await
+}
+
+pub async fn init_i2c(i2c: &'static SharedI2c) -> Result<Ism330dlc, SensorError> {
+    init_with_device(RegisterDevice::new_i2c(i2c, I2C_ADDRESS_PRIMARY)).await
+}
+
+async fn init_with_device(device: RegisterDevice) -> Result<Ism330dlc, SensorError> {
+    let mut sensor = Ism330dlc { device };
 
     let device_id = sensor
         .device
@@ -124,7 +138,7 @@ pub async fn read_ready(
     if status & STATUS_XLDA != 0 {
         accel = sensor
             .device
-            .read_xyz(REG_OUTX_L_XL)
+            .read_xyz_le(REG_OUTX_L_XL)
             .await
             .map_err(|_| SensorError::Bus)?;
     }
@@ -133,7 +147,7 @@ pub async fn read_ready(
     if status & STATUS_GDA != 0 {
         gyro = sensor
             .device
-            .read_xyz(REG_OUTX_L_G)
+            .read_xyz_le(REG_OUTX_L_G)
             .await
             .map_err(|_| SensorError::Bus)?;
     }
@@ -142,7 +156,7 @@ pub async fn read_ready(
     if status & STATUS_TDA != 0 {
         temp_raw = sensor
             .device
-            .read_i16(REG_OUT_TEMP_L)
+            .read_i16_le(REG_OUT_TEMP_L)
             .await
             .map_err(|_| SensorError::Bus)?;
     }

@@ -10,7 +10,7 @@ use esp_hal::gpio::Output;
 
 use crate::{
     board::{SharedI2c, SharedSpi},
-    config::ImuKind,
+    config::{ImuKind, ImuTransport},
     domain::sensor_reading::SensorReading,
 };
 
@@ -30,35 +30,58 @@ pub enum SensorError {
     Icm42688p(icm42688p::SensorError),
     Icm45686(icm45686::SensorError),
     MissingGyroCs,
+    UnsupportedTransport,
 }
 
 pub async fn init_selected(
     imu_kind: ImuKind,
-    _i2c_bus: &'static SharedI2c,
+    transport: ImuTransport,
+    i2c_bus: &'static SharedI2c,
     spi_bus: &'static SharedSpi,
     spi_cs_accel: Output<'static>,
     spi_cs_gyro: Option<Output<'static>>,
 ) -> Result<Sensor, SensorError> {
     match imu_kind {
-        ImuKind::Ism330dlc => ism330dlc::init(spi_bus, spi_cs_accel)
-            .await
-            .map(Sensor::Ism)
-            .map_err(SensorError::Ism),
+        ImuKind::Ism330dlc => match transport {
+            ImuTransport::Spi => ism330dlc::init_spi(spi_bus, spi_cs_accel)
+                .await
+                .map(Sensor::Ism)
+                .map_err(SensorError::Ism),
+            ImuTransport::I2c => ism330dlc::init_i2c(i2c_bus)
+                .await
+                .map(Sensor::Ism)
+                .map_err(SensorError::Ism),
+        },
         ImuKind::Bmi088 => {
+            if matches!(transport, ImuTransport::I2c) {
+                return Err(SensorError::UnsupportedTransport);
+            }
             let cs_gyro = spi_cs_gyro.ok_or(SensorError::MissingGyroCs)?;
-            bmi088::init(spi_bus, spi_cs_accel, cs_gyro)
+            bmi088::init_spi(spi_bus, spi_cs_accel, cs_gyro)
                 .await
                 .map(Sensor::Bmi)
                 .map_err(SensorError::Bmi)
         }
-        ImuKind::Icm45686 => icm45686::init(spi_bus, spi_cs_accel)
-            .await
-            .map(Sensor::Icm45686)
-            .map_err(SensorError::Icm45686),
-        ImuKind::Icm42688p => icm42688p::init(spi_bus, spi_cs_accel)
-            .await
-            .map(Sensor::Icm42688p)
-            .map_err(SensorError::Icm42688p),
+        ImuKind::Icm45686 => match transport {
+            ImuTransport::Spi => icm45686::init_spi(spi_bus, spi_cs_accel)
+                .await
+                .map(Sensor::Icm45686)
+                .map_err(SensorError::Icm45686),
+            ImuTransport::I2c => icm45686::init_i2c(i2c_bus)
+                .await
+                .map(Sensor::Icm45686)
+                .map_err(SensorError::Icm45686),
+        },
+        ImuKind::Icm42688p => match transport {
+            ImuTransport::Spi => icm42688p::init_spi(spi_bus, spi_cs_accel)
+                .await
+                .map(Sensor::Icm42688p)
+                .map_err(SensorError::Icm42688p),
+            ImuTransport::I2c => icm42688p::init_i2c(i2c_bus)
+                .await
+                .map(Sensor::Icm42688p)
+                .map_err(SensorError::Icm42688p),
+        },
     }
 }
 
@@ -90,6 +113,9 @@ pub fn log_error(error: SensorError) {
         SensorError::Icm45686(error) => icm45686::log_error(error),
         SensorError::MissingGyroCs => {
             error!("BMI088 requires a dedicated gyro CS pin");
+        }
+        SensorError::UnsupportedTransport => {
+            error!("Selected IMU does not support the configured transport");
         }
     }
 }

@@ -7,7 +7,15 @@ pub enum ImuKind {
     Icm42688p,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ImuTransport {
+    Spi,
+    I2c,
+}
+
 pub const IMU_KIND: ImuKind = ImuKind::Ism330dlc;
+pub const IMU_TRANSPORT: ImuTransport = ImuTransport::I2c;
 
 pub const SENSOR_BOOT_DELAY_MS: u64 = 25;
 pub const SENSOR_POLL_INTERVAL_MS: u64 = 100;
