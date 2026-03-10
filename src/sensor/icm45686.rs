@@ -38,10 +38,7 @@ pub async fn init(
 ) -> Result<Icm45686, SensorError> {
     cs.set_high();
 
-    let mut sensor = Icm45686 {
-        spi,
-        cs,
-    };
+    let mut sensor = Icm45686 { spi, cs };
 
     Timer::after_millis(config::SENSOR_BOOT_DELAY_MS).await;
 
@@ -65,17 +62,24 @@ pub async fn init(
     Ok(sensor)
 }
 
-pub async fn read_ready(sensor: &mut Icm45686, timestamp_us: u64) -> Result<SensorReading, SensorError> {
+pub async fn read_ready(
+    sensor: &mut Icm45686,
+    timestamp_us: u64,
+) -> Result<SensorReading, SensorError> {
     let mut accel_buf = [0u8; 6];
     sensor
         .read_registers(REG_ACCEL_DATA_X1_UI, &mut accel_buf)
         .await?;
 
     let mut gyro_buf = [0u8; 6];
-    sensor.read_registers(REG_GYRO_DATA_X1_UI, &mut gyro_buf).await?;
+    sensor
+        .read_registers(REG_GYRO_DATA_X1_UI, &mut gyro_buf)
+        .await?;
 
     let mut temp_buf = [0u8; 2];
-    sensor.read_registers(REG_TEMP_DATA1_UI, &mut temp_buf).await?;
+    sensor
+        .read_registers(REG_TEMP_DATA1_UI, &mut temp_buf)
+        .await?;
     let temp_raw = read_be_i16(&temp_buf) as f32;
 
     Ok(SensorReading {

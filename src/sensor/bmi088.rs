@@ -106,14 +106,19 @@ pub async fn init(
     Ok(sensor)
 }
 
-pub async fn read_ready(sensor: &mut Bmi088, timestamp_us: u64) -> Result<SensorReading, SensorError> {
+pub async fn read_ready(
+    sensor: &mut Bmi088,
+    timestamp_us: u64,
+) -> Result<SensorReading, SensorError> {
     let mut accel_buf = [0u8; 6];
     sensor
         .read_accel_burst(ACC_REG_ACCEL_X_LSB, &mut accel_buf)
         .await?;
 
     let mut gyro_buf = [0u8; 6];
-    sensor.read_gyro_burst(GYRO_REG_X_LSB, &mut gyro_buf).await?;
+    sensor
+        .read_gyro_burst(GYRO_REG_X_LSB, &mut gyro_buf)
+        .await?;
 
     let msb = sensor.read_accel_register(ACC_REG_TEMP_MSB).await?;
     let lsb = sensor.read_accel_register(ACC_REG_TEMP_LSB).await?;

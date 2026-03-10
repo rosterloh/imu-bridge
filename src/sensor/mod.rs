@@ -67,8 +67,12 @@ pub async fn read_ready(
     timestamp_us: u64,
 ) -> Result<SensorReading, SensorError> {
     match sensor {
-        Sensor::Ism(sensor) => ism330dlc::read_ready(sensor, timestamp_us).await.map_err(SensorError::Ism),
-        Sensor::Bmi(sensor) => bmi088::read_ready(sensor, timestamp_us).await.map_err(SensorError::Bmi),
+        Sensor::Ism(sensor) => ism330dlc::read_ready(sensor, timestamp_us)
+            .await
+            .map_err(SensorError::Ism),
+        Sensor::Bmi(sensor) => bmi088::read_ready(sensor, timestamp_us)
+            .await
+            .map_err(SensorError::Bmi),
         Sensor::Icm42688p(sensor) => icm42688p::read_ready(sensor, timestamp_us)
             .await
             .map_err(SensorError::Icm42688p),
