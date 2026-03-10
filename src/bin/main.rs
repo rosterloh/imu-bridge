@@ -20,6 +20,7 @@ use embassy_sync::{
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::peripherals::Peripherals;
+use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rng::Rng;
 use esp_hal::timer::timg::{MwdtStage, TimerGroup};
 use esp_radio::Controller;
@@ -32,7 +33,7 @@ use zenoh_nostd::session::{Session, zenoh};
 extern crate alloc;
 
 use imu_bridge::error::Error;
-use imu_bridge::network::{ZenohConfig, connection, net_task, zenoh_connect_static};
+use imu_bridge::network::{ZenohConfig, connection, net_task, sync_rtc_from_ntp, zenoh_connect_static};
 use imu_bridge::sensor;
 use imu_bridge::{board, config};
 
@@ -84,6 +85,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         TIMG0: timg0_peripheral,
         WIFI: wifi,
         I2C0: i2c0,
+        LPWR: lpwr,
         SPI2: spi2,
         GPIO11: gpio11,
         GPIO12: gpio12,
@@ -99,6 +101,7 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
     } = peripherals;
 
     let timg0 = TimerGroup::new(timg0_peripheral);
+    let rtc = Rtc::new(lpwr);
     // let sw_interrupt = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0); // sw_interrupt.software_interrupt0
 
@@ -165,6 +168,8 @@ async fn real_main<'a>(peripherals: Peripherals, spawner: Spawner) -> Result<(),
         }
         Timer::after(Duration::from_millis(500)).await;
     }
+
+    sync_rtc_from_ntp(stack, &rtc).await;
 
     info!("Configure zenoh");
     let endpoint = match Endpoint::try_from(config::zenoh_router_endpoint()) {
