@@ -1,3 +1,7 @@
+use crate::sensor::{
+    AccelFullScale, FullScaleSelection, GyroFullScale, OdrSelection, OutputDataRate, SensorSettings,
+};
+
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ImuKind {
@@ -16,6 +20,16 @@ pub enum ImuTransport {
 
 pub const IMU_KIND: ImuKind = ImuKind::Ism330dlc;
 pub const IMU_TRANSPORT: ImuTransport = ImuTransport::I2c;
+pub const SENSOR_SETTINGS: SensorSettings = SensorSettings {
+    full_scale: FullScaleSelection {
+        accel: AccelFullScale::from_g(16),
+        gyro: GyroFullScale::from_dps(2000),
+    },
+    odr: OdrSelection {
+        accel: OutputDataRate::from_millihz(12_500),
+        gyro: OutputDataRate::from_millihz(12_500),
+    },
+};
 
 pub const SENSOR_BOOT_DELAY_MS: u64 = 25;
 pub const SENSOR_POLL_INTERVAL_MS: u64 = 100;

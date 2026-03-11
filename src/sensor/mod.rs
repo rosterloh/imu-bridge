@@ -1,4 +1,5 @@
 pub mod bmi088;
+pub mod full_scale;
 pub mod icm42688p;
 pub mod icm45686;
 pub mod imu;
@@ -23,6 +24,10 @@ pub enum Sensor {
     Icm45686(icm45686::Icm45686),
 }
 
+pub use full_scale::{
+    AccelFullScale, FullScaleSelection, GyroFullScale, OdrSelection, OutputDataRate, SensorSettings,
+};
+
 #[derive(Clone, Copy, Debug, defmt::Format)]
 pub enum SensorError {
     Ism(ism330dlc::SensorError),
@@ -35,6 +40,7 @@ pub enum SensorError {
 
 pub async fn init_selected(
     imu_kind: ImuKind,
+    settings: SensorSettings,
     transport: ImuTransport,
     i2c_bus: &'static SharedI2c,
     spi_bus: &'static SharedSpi,
@@ -43,11 +49,11 @@ pub async fn init_selected(
 ) -> Result<Sensor, SensorError> {
     match imu_kind {
         ImuKind::Ism330dlc => match transport {
-            ImuTransport::Spi => ism330dlc::init_spi(spi_bus, spi_cs_accel)
+            ImuTransport::Spi => ism330dlc::init_spi(spi_bus, spi_cs_accel, settings)
                 .await
                 .map(Sensor::Ism)
                 .map_err(SensorError::Ism),
-            ImuTransport::I2c => ism330dlc::init_i2c(i2c_bus)
+            ImuTransport::I2c => ism330dlc::init_i2c(i2c_bus, settings)
                 .await
                 .map(Sensor::Ism)
                 .map_err(SensorError::Ism),
@@ -57,27 +63,27 @@ pub async fn init_selected(
                 return Err(SensorError::UnsupportedTransport);
             }
             let cs_gyro = spi_cs_gyro.ok_or(SensorError::MissingGyroCs)?;
-            bmi088::init_spi(spi_bus, spi_cs_accel, cs_gyro)
+            bmi088::init_spi(spi_bus, spi_cs_accel, cs_gyro, settings)
                 .await
                 .map(Sensor::Bmi)
                 .map_err(SensorError::Bmi)
         }
         ImuKind::Icm45686 => match transport {
-            ImuTransport::Spi => icm45686::init_spi(spi_bus, spi_cs_accel)
+            ImuTransport::Spi => icm45686::init_spi(spi_bus, spi_cs_accel, settings)
                 .await
                 .map(Sensor::Icm45686)
                 .map_err(SensorError::Icm45686),
-            ImuTransport::I2c => icm45686::init_i2c(i2c_bus)
+            ImuTransport::I2c => icm45686::init_i2c(i2c_bus, settings)
                 .await
                 .map(Sensor::Icm45686)
                 .map_err(SensorError::Icm45686),
         },
         ImuKind::Icm42688p => match transport {
-            ImuTransport::Spi => icm42688p::init_spi(spi_bus, spi_cs_accel)
+            ImuTransport::Spi => icm42688p::init_spi(spi_bus, spi_cs_accel, settings)
                 .await
                 .map(Sensor::Icm42688p)
                 .map_err(SensorError::Icm42688p),
-            ImuTransport::I2c => icm42688p::init_i2c(i2c_bus)
+            ImuTransport::I2c => icm42688p::init_i2c(i2c_bus, settings)
                 .await
                 .map(Sensor::Icm42688p)
                 .map_err(SensorError::Icm42688p),
@@ -102,6 +108,25 @@ pub async fn read_ready(
         Sensor::Icm45686(sensor) => icm45686::read_ready(sensor, timestamp_us)
             .await
             .map_err(SensorError::Icm45686),
+    }
+}
+
+impl Sensor {
+    pub fn full_scale(&self) -> FullScaleSelection {
+        self.settings().full_scale
+    }
+
+    pub fn odr(&self) -> OdrSelection {
+        self.settings().odr
+    }
+
+    pub fn settings(&self) -> SensorSettings {
+        match self {
+            Sensor::Ism(sensor) => sensor.settings(),
+            Sensor::Bmi(sensor) => sensor.settings(),
+            Sensor::Icm42688p(sensor) => sensor.settings(),
+            Sensor::Icm45686(sensor) => sensor.settings(),
+        }
     }
 }
 

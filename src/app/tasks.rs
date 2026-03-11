@@ -25,6 +25,7 @@ pub async fn sensor_task(
 ) {
     let mut sensor = match sensor::init_selected(
         imu_kind,
+        config::SENSOR_SETTINGS,
         config::IMU_TRANSPORT,
         i2c_bus,
         spi_bus,
