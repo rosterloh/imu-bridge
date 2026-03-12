@@ -58,16 +58,19 @@ pub async fn init_selected(
                 .map(Sensor::Ism)
                 .map_err(SensorError::Ism),
         },
-        ImuKind::Bmi088 => {
-            if matches!(transport, ImuTransport::I2c) {
-                return Err(SensorError::UnsupportedTransport);
+        ImuKind::Bmi088 => match transport {
+            ImuTransport::Spi => {
+                let cs_gyro = spi_cs_gyro.ok_or(SensorError::MissingGyroCs)?;
+                bmi088::init_spi(spi_bus, spi_cs_accel, cs_gyro, settings)
+                    .await
+                    .map(Sensor::Bmi)
+                    .map_err(SensorError::Bmi)
             }
-            let cs_gyro = spi_cs_gyro.ok_or(SensorError::MissingGyroCs)?;
-            bmi088::init_spi(spi_bus, spi_cs_accel, cs_gyro, settings)
+            ImuTransport::I2c => bmi088::init_i2c(i2c_bus, settings)
                 .await
                 .map(Sensor::Bmi)
-                .map_err(SensorError::Bmi)
-        }
+                .map_err(SensorError::Bmi),
+        },
         ImuKind::Icm45686 => match transport {
             ImuTransport::Spi => icm45686::init_spi(spi_bus, spi_cs_accel, settings)
                 .await

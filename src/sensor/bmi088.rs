@@ -2,7 +2,10 @@ use defmt::{error, warn};
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
 
-use crate::{board::SharedSpi, domain::sensor_reading::SensorReading};
+use crate::{
+    board::{SharedI2c, SharedSpi},
+    domain::sensor_reading::SensorReading,
+};
 
 use super::{
     full_scale::{
@@ -39,6 +42,8 @@ const ACC_PWR_CONF_ACTIVE: u8 = 0x00;
 const ACC_PWR_CTRL_ON: u8 = 0x04;
 const ACC_BW_NORMAL: u8 = 0xA0;
 const GYRO_POWER_NORMAL: u8 = 0x00;
+const ACC_I2C_ADDRESS_PRIMARY: u8 = 0x18;
+const GYRO_I2C_ADDRESS_PRIMARY: u8 = 0x68;
 const ACCEL_RANGES: [AccelRangeSetting; 4] = [
     AccelRangeSetting::new(AccelFullScale::from_g(3), 0x00),
     AccelRangeSetting::new(AccelFullScale::from_g(6), 0x01),
@@ -102,9 +107,34 @@ pub async fn init_spi(
     cs_gyro: Output<'static>,
     settings: SensorSettings,
 ) -> Result<Bmi088, SensorError> {
+    init_with_devices(
+        RegisterDevice::new_spi(spi, cs_accel, ACCEL_SPI_CONFIG),
+        RegisterDevice::new_spi(spi, cs_gyro, SpiBusConfig::standard()),
+        settings,
+    )
+    .await
+}
+
+pub async fn init_i2c(
+    i2c: &'static SharedI2c,
+    settings: SensorSettings,
+) -> Result<Bmi088, SensorError> {
+    init_with_devices(
+        RegisterDevice::new_i2c(i2c, ACC_I2C_ADDRESS_PRIMARY),
+        RegisterDevice::new_i2c(i2c, GYRO_I2C_ADDRESS_PRIMARY),
+        settings,
+    )
+    .await
+}
+
+async fn init_with_devices(
+    accel: RegisterDevice,
+    gyro: RegisterDevice,
+    settings: SensorSettings,
+) -> Result<Bmi088, SensorError> {
     let mut sensor = Bmi088 {
-        accel: RegisterDevice::new_spi(spi, cs_accel, ACCEL_SPI_CONFIG),
-        gyro: RegisterDevice::new_spi(spi, cs_gyro, SpiBusConfig::standard()),
+        accel,
+        gyro,
         accel_range: select_accel_range(settings.full_scale.accel, &ACCEL_RANGES),
         gyro_range: select_gyro_range(settings.full_scale.gyro, &GYRO_RANGES),
         accel_odr: select_odr(settings.odr.accel, &ACCEL_ODRS),
@@ -248,7 +278,7 @@ impl Bmi088 {
 
 pub fn log_error(error: SensorError) {
     match error {
-        SensorError::Bus => error!("BMI088 SPI bus error"),
+        SensorError::Bus => error!("BMI088 bus error"),
         SensorError::InvalidAccelDeviceId(id) => warn!("Invalid BMI088 accel ID {}", id),
         SensorError::InvalidGyroDeviceId(id) => warn!("Invalid BMI088 gyro ID {}", id),
     }

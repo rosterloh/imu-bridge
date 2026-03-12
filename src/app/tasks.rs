@@ -1,6 +1,6 @@
 use defmt::{error, info, warn};
 use embassy_futures::select::{Either, select};
-use embassy_time::{Duration, Timer, with_timeout};
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use esp_hal::gpio::Output;
 use esp_hal::rtc_cntl::Rtc;
 use zenoh_nostd::session::Endpoint;
@@ -168,6 +168,7 @@ async fn publish_sensor_loop(
     stack: embassy_net::Stack<'static>,
 ) -> Result<(), Error> {
     let keyexpr = zenoh::keyexpr::new(config::ZENOH_KEYEXPR).map_err(|_| Error::Write)?;
+    let mut next_sensor_log_at = Instant::now();
 
     loop {
         if !stack.is_link_up() || stack.config_v4().is_none() {
@@ -182,7 +183,11 @@ async fn publish_sensor_loop(
 
         let mut msg = heapless::String::<{ config::SENSOR_MESSAGE_CAPACITY }>::new();
         telemetry::text::encode_reading(&val, &mut msg)?;
-        info!("Received sensor reading: {}", msg);
+        let now = Instant::now();
+        if now >= next_sensor_log_at {
+            info!("Received sensor reading: {}", msg);
+            next_sensor_log_at = now + Duration::from_secs(5);
+        }
 
         session
             .put(keyexpr, msg.as_bytes())
