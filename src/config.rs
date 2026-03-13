@@ -18,7 +18,7 @@ pub enum ImuTransport {
     I2c,
 }
 
-pub const IMU_KIND: ImuKind = ImuKind::Bmi088;
+pub const IMU_KIND: ImuKind = ImuKind::Ism330dlc;
 pub const IMU_TRANSPORT: ImuTransport = ImuTransport::I2c;
 pub const SENSOR_SETTINGS: SensorSettings = SensorSettings {
     full_scale: FullScaleSelection {
@@ -26,8 +26,8 @@ pub const SENSOR_SETTINGS: SensorSettings = SensorSettings {
         gyro: GyroFullScale::from_dps(2000),
     },
     odr: OdrSelection {
-        accel: OutputDataRate::from_millihz(12_500),
-        gyro: OutputDataRate::from_millihz(12_500),
+        accel: OutputDataRate::from_hz(25),
+        gyro: OutputDataRate::from_hz(25),
     },
 };
 

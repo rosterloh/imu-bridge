@@ -1,4 +1,4 @@
-use defmt::{error, warn};
+use defmt::{debug, error, info, warn};
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
 
@@ -141,6 +141,8 @@ async fn init_with_devices(
         gyro_odr: select_odr(settings.odr.gyro, &GYRO_ODRS),
     };
 
+    info!("Initialising BMI088...");
+
     let accel_id = sensor
         .accel
         .read_register(ACC_REG_CHIP_ID)
@@ -158,6 +160,8 @@ async fn init_with_devices(
     if gyro_id != GYRO_CHIP_ID {
         return Err(SensorError::InvalidGyroDeviceId(gyro_id));
     }
+
+    debug!("Devices found. Configuring...");
 
     sensor
         .accel

@@ -1,4 +1,4 @@
-use defmt::{error, warn};
+use defmt::{debug, error, info, warn};
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
 
@@ -127,6 +127,8 @@ async fn init_with_device(
         gyro_odr: select_odr(requested_settings.odr.gyro, &GYRO_ODRS),
     };
 
+    info!("Initialising ICM-42688-P...");
+
     Timer::after_millis(config::SENSOR_BOOT_DELAY_MS).await;
 
     sensor
@@ -144,6 +146,8 @@ async fn init_with_device(
     if device_id != WHO_AM_I_EXPECTED {
         return Err(SensorError::InvalidDeviceId(device_id));
     }
+
+    debug!("Device found. Configuring...");
 
     sensor
         .device

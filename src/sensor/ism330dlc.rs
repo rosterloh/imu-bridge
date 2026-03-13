@@ -1,4 +1,4 @@
-use defmt::warn;
+use defmt::{debug, info, warn};
 use embassy_time::Timer;
 use esp_hal::gpio::Output;
 
@@ -124,6 +124,8 @@ async fn init_with_device(
         gyro_odr: GYRO_ODRS[0],
     };
 
+    info!("Initialising ISM330DLC...");
+
     let device_id = sensor
         .device
         .read_register(REG_WHO_AM_I)
@@ -132,6 +134,8 @@ async fn init_with_device(
     if device_id != WHO_AM_I_EXPECTED {
         return Err(SensorError::InvalidDeviceId(device_id));
     }
+
+    debug!("Device found. Configuring...");
 
     Timer::after_millis(config::SENSOR_BOOT_DELAY_MS).await;
 
@@ -263,7 +267,7 @@ impl Ism330dlc {
 
 pub fn log_error(error: SensorError) {
     match error {
-        SensorError::Bus => log_bus_error("ISM330DLC SPI"),
+        SensorError::Bus => log_bus_error("ISM330DLC bus error"),
         SensorError::InvalidDeviceId(id) => warn!("Invalid ISM330DLC ID {}", id),
     }
 }
