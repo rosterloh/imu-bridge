@@ -2,6 +2,20 @@
 
 Firmware for the Arduino Nano ESP32 to read data from IMU candidates and publish the data using Zenoh
 
+## Toolchain
+
+This repository pins the ESP Rust toolchain in [`rust-toolchain.toml`](./rust-toolchain.toml).
+If your shell exports `RUSTUP_TOOLCHAIN`, plain `cargo` may ignore that pin and fail with
+`can't find crate for core` for `xtensa-esp32s3-none-elf`.
+
+Use [`./cargow`](./cargow) to drop the override and run commands with the repo toolchain:
+
+```sh
+./cargow check
+./cargow build
+./cargow run
+```
+
 ## Supported IMUs
 
 The table below reflects the ranges currently configured or decoded by the local drivers in `src/sensor/`.

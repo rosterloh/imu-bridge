@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Some shells export RUSTUP_TOOLCHAIN globally, which overrides this repo's
+# rust-toolchain.toml and breaks ESP builds. Drop the override so rustup can
+# select the pinned toolchain for this project.
+unset RUSTUP_TOOLCHAIN
+
+exec cargo "$@"

@@ -1,26 +1,17 @@
 # Repository Guidelines
 
-## MANDATORY: Use td for Task Management
-
-Run td usage --new-session at conversation start (or after /clear). This tells you what to work on next.
-
-Sessions are automatic (based on terminal/agent context). Optional:
-- td session "name" to label the current session
-- td session --new to force a new session in the same context
-
-Use td usage -q after first read.
-
 ## Project Structure & Module Organization
 `src/lib.rs` exposes the reusable crate modules: `app`, `board`, `config`, `network`, `sensor`, `domain`, `telemetry`, and `error`. Keep `src/bin/main.rs` as the composition root only: hardware init, task spawning, and watchdog setup. Runtime orchestration lives in `src/app/`, sensor backends live in `src/sensor/`, pure data types live in `src/domain/`, and payload encoders live in `src/telemetry/`. The host-side Zenoh CSV logger lives in `tools/imu-logger/`. Build-time setup is in `build.rs`, while target and runner defaults are in `.cargo/config.toml`.
 
 ## Build, Test, and Development Commands
 Use the ESP toolchain from `rust-toolchain.toml` (`channel = "esp"`).
 
-- `cargo check`: fast validation for the default `xtensa-esp32s3-none-elf` target.
-- `cargo build`: compile the firmware binary.
-- `cargo run`: build and flash/run through the configured `probe-rs` runner for ESP32-S3.
-- `cargo clippy --all-targets -- -D warnings`: enforce lint cleanliness.
-- `cargo fmt --check`: verify formatting before opening a PR.
+- `source ~/export-esp.sh`: add esp tollchain to path
+- `./cargow check`: fast validation for the default `xtensa-esp32s3-none-elf` target.
+- `./cargow build`: compile the firmware binary.
+- `./cargow run`: build and flash/run through the configured `probe-rs` runner for ESP32-S3.
+- `./cargow clippy --all-targets -- -D warnings`: enforce lint cleanliness.
+- `./cargow fmt --check`: verify formatting before opening a PR.
 - `cargo +stable run --manifest-path tools/imu-logger/Cargo.toml --target x86_64-unknown-linux-gnu -- --help`: validate the host logger without using the ESP toolchain.
 
 ## Coding Style & Naming Conventions

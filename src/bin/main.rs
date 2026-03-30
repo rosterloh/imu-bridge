@@ -124,9 +124,9 @@ async fn real_main(peripherals: Peripherals, spawner: Spawner) -> Result<(), Err
     let resources = STACK_RESOURCES.init(StackResources::<3>::new());
     let (stack, runner) = embassy_net::new(interfaces.sta, config, resources, seed);
 
-    spawner.spawn(connection(wifi_controller)).ok();
-    spawner.spawn(net_task(runner)).ok();
-    spawner.spawn(tasks::zenoh_task(stack, rtc, led0)).ok();
+    spawner.spawn(connection(wifi_controller)).unwrap();
+    spawner.spawn(net_task(runner)).unwrap();
+    spawner.spawn(tasks::zenoh_task(stack, rtc, led0)).unwrap();
     spawner
         .spawn(tasks::sensor_task(
             config::IMU_KIND,
@@ -136,7 +136,7 @@ async fn real_main(peripherals: Peripherals, spawner: Spawner) -> Result<(), Err
             spi_cs_gyro,
             rtc,
         ))
-        .ok();
+        .unwrap();
 
     run_watchdog(wdt).await
 }

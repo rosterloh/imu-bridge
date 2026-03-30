@@ -18,7 +18,7 @@ pub enum ImuTransport {
     I2c,
 }
 
-pub const IMU_KIND: ImuKind = ImuKind::Ism330dlc;
+pub const IMU_KIND: ImuKind = ImuKind::Icm45686;
 pub const IMU_TRANSPORT: ImuTransport = ImuTransport::I2c;
 pub const SENSOR_SETTINGS: SensorSettings = SensorSettings {
     full_scale: FullScaleSelection {
